@@ -73,54 +73,82 @@ class Frame(object):
                 
         return pixels  
         
-
-def get_weights(size):
-    weights = [0.0] * size
-    weights[0] = random.random()
-    for i in range(1,len(weights)-1):
-        weights[i] = random.uniform(0, weights[i-1])
-    weights[-1] = 1.0 - sum(weights[:-1])
-    random.shuffle(weights)
-    return weights
-
-def choose_one(source_images, x, y):
-    source_im = random.choice(source_images)
-    return source_im.getpixel((x,y))
     
-def choose_blend(source_images, x, y):
-    weights = get_weights(len(source_images))
-    colors = (im.getpixel((x,y)) for im in source_images)
-    weighted_colors = ((ri*w, gi*w, bi*w) for (ri,gi,bi), w in izip(colors, weights))
-    r,g,b = (0.0, 0.0, 0.0)
-    for ri,gi,bi in weighted_colors:
-        r += ri
-        g += gi
-        b += bi
+class PixelBlender(object):
     
-    return [int(x+0.5) for x in (r,g,b)]
-    
-def get_blended_frame(source_images, frame):
-    weights = get_weights(len(source_images))
-    pixel_list = [frame.read(im) for im in source_images]
+    def __init__(self, blended_image, source_images, stepper, xfirst=True):   
+        self.blended_image = blended_image     
+        self.width, self.height = blended_image.size
+        self.source_images = source_images
+        self.stepper = stepper
+        self.xfirst = xfirst
         
-    width = pixel_list[0].width
-    height = pixel_list[0].height
-    results = Pixels(width, height)
-    for x in range(0,width):
-        for y in range(0,height):
-            px = [p.getpixel(x,y) for p in pixel_list]
-            weighted_pixels = [(r*w,g*w,b*w) for (r,g,b), w in zip(px, weights)]
-            for t1 in weighted_pixels:
-                t2 = results.getpixel(x,y)
-                results.putpixel(x,y, (t1[0] + t2[0], t1[1]+t2[1], t1[1]+t2[2]))
-
-            results.putpixel(x, y, tuple([int(a+0.5) for a in results.getpixel(x,y)]))
+    def next_x(self):
+        self.current_xstep = stepper.next_x_step()
+  
+    def next_y(self):
+        self.current_ystep = stepper.next_y_step()
         
-    return results
+    def generate_image(self):
+        if self.xfirst:
+            x=0
+            while x < width:
+                self.next_x()
+                y = 0
+                while y < height:
+                    self.next_y()
+                    self.process_frame(x,y)
+                    y += self.current_ystep
+                x += self.current_xstep
+        else:
+            y=0
+            while y < height:
+                self.next_y()
+                x = 0
+                while x < width:
+                    self.next_x()
+                    self.process_frame(x,y)
+                    x += self.current_xstep
+                y += self.current_ystep
+                
+    def process_frame(self, x, y):
+        frame =  Frame((x,y), (x+self.current_xstep,y+self.current_ystep))
+        p = self.get_blended_frame(frame)
+        frame.write(self.blended_image, p)
+        
+    def get_blended_frame(self, frame):
+        source_im = random.choice(self.source_images)
+        return frame.read(source_im)
+        
+class ContinuousBlender(PixelBlender):
     
-def choose_one_frame(source_images, frame):
-    source_im = random.choice(source_images)
-    return frame.read(source_im)
+    def get_weights(self, size):
+        weights = [0.0] * size
+        weights[0] = random.random()
+        for i in range(1,len(weights)-1):
+            weights[i] = random.uniform(0, weights[i-1])
+        weights[-1] = 1.0 - sum(weights[:-1])
+        random.shuffle(weights)
+        return weights
+                
+    def get_blended_frame(self, frame):
+        weights = self.get_weights(len(self.source_images))
+        pixel_list = [frame.read(im) for im in self.source_images]
+
+        width = pixel_list[0].width
+        height = pixel_list[0].height
+        results = Pixels(width, height)
+        for x in range(0,width):
+            for y in range(0,height):
+                px = [p.getpixel(x,y) for p in pixel_list]
+                weighted_pixels = [(r*w,g*w,b*w) for (r,g,b), w in zip(px, weights)]
+                for t1 in weighted_pixels:
+                    t2 = results.getpixel(x,y)
+                    results.putpixel(x,y, (t1[0] + t2[0], t1[1]+t2[1], t1[1]+t2[2]))
+
+                results.putpixel(x, y, tuple([int(a+0.5) for a in results.getpixel(x,y)]))
+
+        return results
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Randomly blends pixels from source image files.  All the images will be resized to the size of the first one.")
@@ -133,6 +161,7 @@ if __name__ == '__main__':
     parser.add_argument("--vary", help="Vary the step size.", action='store_true')
     parser.add_argument("--minstep", help="Minimum step size (only used if vary is set.)[1]", type=int, default=1)
     parser.add_argument("--minystep", help="Minimum step size in the vertical direction (only used if vary is set.)[1]", type=int, default=1)  
+    parser.add_argument("--yfirst", help="Process y direction first", action='store_true')
     
     args = parser.parse_args()
     
@@ -145,28 +174,12 @@ if __name__ == '__main__':
             
     blended_images = [Image.new('RGB', (width,height)) for x in range(args.variants)]
     stepper = Stepper(args.step, args.ystep, args.minstep, args.minystep, args.vary)
-    x=0
-    while x < width:
-        xstep = stepper.next_x_step()
-        y = 0
-        while y < height:
-            ystep = stepper.next_y_step()
-            for blended_im in blended_images:
-                if args.continuous:
-                    frame =  Frame((x,y), (x+xstep,y+ystep))
-                    p = get_blended_frame(source_images, frame)
-                    frame.write(blended_im, p)
-                    # (r,g,b) = choose_blend(source_images, x, y)
-                    # blended_im.putpixel((x,y), (r,g,b))
-                else:
-                    # (r,g,b) = choose_one(source_images, x, y)
-                    # blended_im.putpixel((x,y), (r,g,b))
-                    frame =  Frame((x,y), (x+xstep,y+ystep))
-                    p = choose_one_frame(source_images, frame)
-                    frame.write(blended_im, p)
-            y += ystep
-        x += xstep
-    
+    for blended_im in blended_images:
+        if args.continuous:
+            b = ContinuousBlender(blended_im, source_images, stepper, not args.yfirst)
+        else:
+            b = PixelBlender(blended_im, source_images, stepper, not args.yfirst)
+        b.generate_image()
     
     for i in range(args.variants):
         blended_im = blended_images[i]
