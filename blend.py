@@ -6,6 +6,20 @@ import random
 import sys
 from itertools import izip
 
+class ColorSpaceConverter:
+    
+    def __init__(self, bits=255.0):
+        self.bits = float(bits)
+        
+    def rgb_to_hsv(self, t):
+        r,g,b = [x/self.bits for x in t]
+        return colorsys.rgb_to_hsv(r,g,b)
+        
+    def hsv_to_rgb(self, t):
+        h,s,v = t
+        r,g,b = colorsys.hsv_to_rgb(h,s,v)
+        return [int(x*self.bits) for x in (r,g,b)]
+
 class Stepper(object):
     
     def __init__(self, xstep, ystep, minx, miny, vary):
@@ -130,13 +144,8 @@ class ContinuousBlender(PixelBlender):
         weights[-1] = 1.0 - sum(weights[:-1])
         random.shuffle(weights)
         return weights
-                
-    def get_blended_frame(self, frame):
-        weights = self.get_weights(len(self.source_images))
-        pixel_list = [frame.read(im) for im in self.source_images]
-
-        width = pixel_list[0].width
-        height = pixel_list[0].height
+    
+    def get_blended_pixels(self, width, height, weights, pixel_list):
         results = Pixels(width, height)
         for x in range(0,width):
             for y in range(0,height):
@@ -147,8 +156,27 @@ class ContinuousBlender(PixelBlender):
                     results.putpixel(x,y, (t1[0] + t2[0], t1[1]+t2[1], t1[1]+t2[2]))
 
                 results.putpixel(x, y, tuple([int(a+0.5) for a in results.getpixel(x,y)]))
-
         return results
+                      
+    def get_blended_frame(self, frame):
+        weights = self.get_weights(len(self.source_images))
+        pixel_list = [frame.read(im) for im in self.source_images]
+        return self.get_blended_pixels(pixel_list[0].width, pixel_list[0].height, weights, pixel_list )
+ 
+        
+class LuminosityBlender(ContinuousBlender):
+            
+    def get_blended_pixels(self, width, height, weights, pixel_list):
+        results = Pixels(width, height)
+        csv = ColorSpaceConverter()
+        max_weight_index = weights.index(max(weights))
+        for x in range(0,width):
+            for y in range(0,height):
+                hsvx = [csv.rgb_to_hsv(p.getpixel(x,y)) for p in pixel_list]
+                hmax, smax, vmax = hsvx[max_weight_index] 
+                vblend = sum([v*w for (h,s,v), w in zip(hsvx, weights)])
+                results.putpixel(x, y, csv.hsv_to_rgb((hmax,smax,vblend)))
+        return results    
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Randomly blends pixels from source image files.  All the images will be resized to the size of the first one.")
@@ -162,6 +190,7 @@ if __name__ == '__main__':
     parser.add_argument("--minstep", help="Minimum step size (only used if vary is set.)[1]", type=int, default=1)
     parser.add_argument("--minystep", help="Minimum step size in the vertical direction (only used if vary is set.)[1]", type=int, default=1)  
     parser.add_argument("--yfirst", help="Process y direction first", action='store_true')
+    parser.add_argument("--luminosity", help="Luminosity blend.", action='store_true')
     
     args = parser.parse_args()
     
@@ -176,9 +205,13 @@ if __name__ == '__main__':
     stepper = Stepper(args.step, args.ystep, args.minstep, args.minystep, args.vary)
     for blended_im in blended_images:
         if args.continuous:
-            b = ContinuousBlender(blended_im, source_images, stepper, not args.yfirst)
+            if args.luminosity:
+                b = LuminosityBlender(blended_im, source_images, stepper, not args.yfirst)
+            else:
+                b = ContinuousBlender(blended_im, source_images, stepper, not args.yfirst)
         else:
             b = PixelBlender(blended_im, source_images, stepper, not args.yfirst)
+            
         b.generate_image()
     
     for i in range(args.variants):
