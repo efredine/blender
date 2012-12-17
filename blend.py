@@ -90,12 +90,13 @@ class Frame(object):
     
 class PixelBlender(object):
     
-    def __init__(self, blended_image, source_images, stepper, xfirst=True):   
+    def __init__(self, blended_image, source_images, stepper, xfirst=True, subdivide=False):   
         self.blended_image = blended_image     
         self.width, self.height = blended_image.size
         self.source_images = source_images
         self.stepper = stepper
         self.xfirst = xfirst
+        self.subdivide = subdivide
         
     def next_x(self):
         self.current_xstep = stepper.next_x_step()
@@ -124,11 +125,29 @@ class PixelBlender(object):
                     self.process_frame(x,y)
                     x += self.current_xstep
                 y += self.current_ystep
+    
+    def get_frames(self, x, y):
+        frame = Frame((x,y), (x+self.current_xstep,y+self.current_ystep))
+        if self.subdivide:
+            subx = random.randint(1,self.current_xstep)
+            if not self.stepper.vary and self.current_xstep == self.current_ystep:
+                suby = subx
+            else:
+                suby = random.randint(1,self.current_ystep)
+            frame_list = []
+            for i in range(x,x+self.current_xstep,subx):
+                for j in range(y,y+self.current_ystep,suby):
+                    subframe = Frame((i,j), (i+subx, j+suby))
+                    p1,p2 = frame.intersect(subframe.p1, subframe.p2)
+                    frame_list.append(Frame(p1,p2))
+            return frame_list
+        else:
+            return [frame]
                 
     def process_frame(self, x, y):
-        frame =  Frame((x,y), (x+self.current_xstep,y+self.current_ystep))
-        p = self.get_blended_frame(frame)
-        frame.write(self.blended_image, p)
+        for frame in self.get_frames(x, y): 
+            p = self.get_blended_frame(frame)
+            frame.write(self.blended_image, p)
         
     def get_blended_frame(self, frame):
         source_im = random.choice(self.source_images)
@@ -154,7 +173,6 @@ class ContinuousBlender(PixelBlender):
                 for t1 in weighted_pixels:
                     t2 = results.getpixel(x,y)
                     results.putpixel(x,y, (t1[0] + t2[0], t1[1]+t2[1], t1[1]+t2[2]))
-
                 results.putpixel(x, y, tuple([int(a+0.5) for a in results.getpixel(x,y)]))
         return results
                       
@@ -191,6 +209,7 @@ if __name__ == '__main__':
     parser.add_argument("--minystep", help="Minimum step size in the vertical direction (only used if vary is set.)[1]", type=int, default=1)  
     parser.add_argument("--yfirst", help="Process y direction first", action='store_true')
     parser.add_argument("--luminosity", help="Luminosity blend.", action='store_true')
+    parser.add_argument("--subdivide", help="Subdivide squares.", action='store_true')
     
     args = parser.parse_args()
     
@@ -206,11 +225,11 @@ if __name__ == '__main__':
     for blended_im in blended_images:
         if args.continuous:
             if args.luminosity:
-                b = LuminosityBlender(blended_im, source_images, stepper, not args.yfirst)
+                b = LuminosityBlender(blended_im, source_images, stepper, not args.yfirst, args.subdivide)
             else:
-                b = ContinuousBlender(blended_im, source_images, stepper, not args.yfirst)
+                b = ContinuousBlender(blended_im, source_images, stepper, not args.yfirst, args.subdivide)
         else:
-            b = PixelBlender(blended_im, source_images, stepper, not args.yfirst)
+            b = PixelBlender(blended_im, source_images, stepper, not args.yfirst, args.subdivide)
             
         b.generate_image()
     
