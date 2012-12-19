@@ -44,16 +44,17 @@ def shift_hue(arr,hout):
     rgb=hsv_to_rgb(hsv)
     return rgb
 
-img = Image.open('test.png').convert('RGBA')
-arr=np.array(np.asarray(img).astype('float'))
 
 if __name__=='__main__':
+    img = Image.open('test.png').convert('RGBA')
+    arr=np.array(np.asarray(img).astype('float'))
+    
     green_hue=(180-78)/360.0
     red_hue=(180-180)/360.0
 
     new_img = Image.fromarray(shift_hue(arr,red_hue).astype('uint8'),'RGBA')
-    new_img.save('tweeter_red.png')
+    new_img.save('test_red.png')
 
 
     new_img = Image.fromarray(shift_hue(arr,green_hue).astype('uint8'),'RGBA')
-    new_img.save('tweeter_green.png')
+    new_img.save('test_green.png')

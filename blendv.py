@@ -9,9 +9,10 @@ import itertools
 
 class Mask:
     
-    def __init__(self, dim1, dim2, num=2, min1=1, min2=1, step1=100, step2=20, subdivide=False, vary=False):
+    def __init__(self, dim1, dim2, num=2, min1=1, min2=1, step1=50, step2=50, subdivide=False, vary=True):
         self.dim1 = dim1
         self.dim2 = dim2
+        self.num = num
         self.min1 = min1
         self.min2 = min2
         self.step1 = step1
@@ -20,14 +21,19 @@ class Mask:
         self.vary = vary
                 
         if not step2:
-            step2 = step1
+            self.step2 = step1
+
+        if not self.vary:
+            self.get_fixed_grid()
+        else:
+            self.get_variable_grid()
             
         # self.mask = np.empty((dim2,dim1))
-        b1 = dim1/step1
-        b2 = dim2/step2
-        m1 = np.random.randint(num,size=(b2, b1))
-        m1 = np.repeat(m1, step1, axis=1)
-        self.mask = np.repeat(m1, step2, axis=0)
+        # b1 = dim1/step1
+        # b2 = dim2/step2
+        # m1 = np.random.randint(num,size=(b2, b1))
+        # m1 = np.repeat(m1, self.step1, axis=1)
+        # self.mask = np.repeat(m1, self.step2, axis=0)
         # for x in range(0,step1):
         #     for y in range(0, step2):
         #         self.mask[y:dim2:step2, x:dim1:step1] = m1
@@ -38,13 +44,39 @@ class Mask:
         m = np.equal(self.mask, np.ones_like(self.mask) * i)
         m = m.astype('float')
         return np.expand_dims(m, axis=2)
+      
+    def get_fixed_grid(self):
+        b1 = self.dim1/self.step1
+        b2 = self.dim2/self.step2
+        m1 = self.get_frame((0, self.num), size=(b2, b1))
+        m1 = np.repeat(m1, self.step1, axis=1)
+        self.mask = np.repeat(m1, self.step2, axis=0)
         
-    def include(self):
-        return self.mask.astype('float')
+    def get_frame(self, value_range, size):
+        return np.random.randint(low=value_range[0], high=value_range[1], size=size)    
         
-    def exclude(self):
-        return np.logical_not(self.mask).astype('float')
+    def nextx(self):
+        self.stepx = random.randint(self.min1, self.step1)
 
+    def nexty(self):
+        self.stepy = random.randint(self.min2, self.step2)
+        
+    def get_variable_grid(self):
+        
+        self.mask = np.empty((self.dim2,self.dim1))
+        x=0
+        while x<self.dim1:
+            self.nextx()
+            y=0
+            while y<self.dim2:
+                self.nexty()
+                b1 = self.stepx 
+                b2 = self.stepy
+                m = np.ones((b2,b1)) * random.randint(0,self.num-1)
+                self.mask[y:min(y+b2,self.dim2), x:min(x+b1,self.dim1)] = m[:min(b2,self.dim2-y), :min(b1,self.dim1-x)]
+                y += self.stepy
+            x += self.stepx
+        
 class ColorSpaceConverter:
     
     def __init__(self, bits=255.0):
@@ -246,8 +278,8 @@ if __name__ == '__main__':
             
     source_arrays = [np.asarray(im).astype('float') for im in source_images]
     
-    mask = Mask(width, height, num=len(source_images))
-    blended_arrays = [reduce(lambda x,y: x+y, [sa * mask.get_instance(i) for (i, sa) in enumerate(source_arrays)]) for j in range(args.variants)]
+    masks = [Mask(width, height, num=len(source_images)) for j in range(args.variants)]
+    blended_arrays = [reduce(lambda x,y: x+y, [sa * masks[j].get_instance(i) for (i, sa) in enumerate(source_arrays)]) for j in range(args.variants)]
     for ba in blended_arrays:
         print ba.shape
     for (i, arr) in enumerate(blended_arrays):
